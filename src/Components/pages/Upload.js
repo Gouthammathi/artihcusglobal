@@ -345,7 +345,32 @@ const Upload = () => {
   const handleDelete = async (id) => {
     const storeKey = selectedPage.toLowerCase();
     try {
+      // Get the document data before deleting (to get image URLs)
+      const docToDelete = dataStore[storeKey].find(item => item.id === id);
+      
+      // Delete the document from Firestore
       await deleteDoc(doc(db, storeKey, id));
+
+      // Delete associated images from Storage if they exist
+      if (docToDelete && docToDelete.images && docToDelete.images.length > 0) {
+        const deleteImagePromises = docToDelete.images.map(async (imageUrl) => {
+          if (imageUrl.includes('firebasestorage.googleapis.com')) {
+            try {
+              // Extract the path from the URL
+              const imagePath = imageUrl.split('/o/')[1].split('?')[0];
+              const decodedPath = decodeURIComponent(imagePath);
+              const imageRef = ref(storage, decodedPath);
+              await deleteObject(imageRef);
+            } catch (error) {
+              console.error(`Error deleting image: ${imageUrl}`, error);
+            }
+          }
+        });
+
+        await Promise.all(deleteImagePromises);
+      }
+
+      // Update local state
       const updatedData = dataStore[storeKey].filter((item) => item.id !== id);
       setDataStore((prev) => ({
         ...prev,
@@ -360,7 +385,7 @@ const Upload = () => {
     } catch (error) {
       console.error("Error deleting data:", error);
       setNotification({
-        message: "Error deleting data",
+        message: `Error deleting data: ${error.message}`,
         type: "error",
       });
     }
