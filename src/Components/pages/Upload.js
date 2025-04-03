@@ -106,6 +106,60 @@ const Upload = () => {
     };
   }, [formData.images]);
 
+  // Convert file to Base64
+  const fileToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
+  // Compress image before converting to Base64
+  const compressImage = (file) => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (e) => {
+        const img = new Image();
+        img.src = e.target.result;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          // Maximum dimensions
+          const MAX_WIDTH = 800;
+          const MAX_HEIGHT = 800;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Get compressed image as base64
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+          resolve(compressedBase64);
+        };
+      };
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
   // Handle Image Upload
   const handleImageUpload = async (e) => {
     const files = Array.from(e.target.files);
@@ -113,59 +167,38 @@ const Upload = () => {
 
     try {
       setNotification({
-        message: "Uploading images...",
+        message: "Processing images...",
         type: "info",
       });
 
       const uploadPromises = files.map(async (file) => {
         try {
-          // Validate file size (5MB limit)
-          if (file.size > 5 * 1024 * 1024) {
-            throw new Error(`File ${file.name} is too large. Maximum size is 5MB.`);
-          }
-
           // Validate file type
           if (!file.type.startsWith('image/')) {
             throw new Error(`File ${file.name} is not an image.`);
           }
 
-          // Create a unique filename
-          const uniqueFileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-          const storageRef = ref(storage, `images/${uniqueFileName}`);
-
-          // Set proper metadata
-          const metadata = {
-            contentType: file.type,
-            customMetadata: {
-              originalName: file.name,
-              uploadedAt: new Date().toISOString(),
-              uploadedBy: 'admin' // or any user identifier
-            }
-          };
-
-          // Upload with metadata
-          const snapshot = await uploadBytes(storageRef, file, metadata);
-          
-          // Get download URL
-          const downloadURL = await getDownloadURL(snapshot.ref);
+          // Compress and convert to Base64
+          const compressedBase64 = await compressImage(file);
+          console.log(`Processed ${file.name}`);
 
           return {
-            url: downloadURL,
-            path: `images/${uniqueFileName}`,
-            name: file.name
+            name: file.name,
+            type: file.type,
+            base64: compressedBase64,
+            uploadedAt: new Date().toISOString()
           };
         } catch (error) {
-          console.error(`Error uploading file ${file.name}:`, error);
-          throw error;
+          console.error(`Error processing file ${file.name}:`, error);
+          throw new Error(`Failed to process ${file.name}: ${error.message}`);
         }
       });
 
       const results = await Promise.allSettled(uploadPromises);
       
-      // Filter successful uploads and handle failures
       const successfulUploads = results
         .filter(result => result.status === 'fulfilled')
-        .map(result => result.value.url);
+        .map(result => result.value);
 
       const failedUploads = results
         .filter(result => result.status === 'rejected')
@@ -174,7 +207,7 @@ const Upload = () => {
       if (failedUploads.length > 0) {
         console.error('Failed uploads:', failedUploads);
         setNotification({
-          message: `Some images failed to upload: ${failedUploads.join(', ')}`,
+          message: `Some images failed to process: ${failedUploads.join(', ')}`,
           type: "warning"
         });
       }
@@ -186,61 +219,32 @@ const Upload = () => {
         }));
 
         setNotification({
-          message: `Successfully uploaded ${successfulUploads.length} image(s)`,
+          message: `Successfully processed ${successfulUploads.length} image(s)`,
           type: "success"
         });
       }
     } catch (error) {
-      console.error('Error in image upload:', error);
+      console.error('Error in image processing:', error);
       setNotification({
-        message: `Error uploading images: ${error.message}`,
+        message: `Error processing images: ${error.message}`,
         type: "error"
       });
     }
   };
 
-  // Handle Image Removal
-  const handleImageRemove = async (index) => {
-    try {
-      const imageUrl = formData.images[index];
-      
-      // Remove from form data first
-      setFormData(prev => ({
-        ...prev,
-        images: prev.images.filter((_, i) => i !== index)
-      }));
-
-      // Try to delete from storage if it's a Firebase Storage URL
-      if (imageUrl.includes('firebasestorage.googleapis.com')) {
-        try {
-          const storageRef = ref(storage, imageUrl);
-          await deleteObject(storageRef);
-        } catch (error) {
-          console.error('Error deleting image from storage:', error);
-        }
-      }
-    } catch (error) {
-      console.error('Error removing image:', error);
-      setNotification({
-        message: `Error removing image: ${error.message}`,
-        type: "error"
-      });
-    }
-  };
-
-  // Render Image Preview with loading state
+  // Render Image Preview
   const renderImagePreviews = () => {
     return (
       <div className="flex flex-wrap gap-4 mt-4">
-        {formData.images.map((url, index) => (
-          <div key={`${url}-${index}`} className="relative group">
+        {formData.images.map((image, index) => (
+          <div key={`${image.name}-${index}`} className="relative group">
             <div className="relative w-24 h-24 rounded-lg overflow-hidden">
               <img
-                src={url}
+                src={image.base64}
                 alt={`Preview ${index + 1}`}
                 className="w-full h-full object-cover transition-transform group-hover:scale-105"
                 onError={(e) => {
-                  console.error(`Error loading image: ${url}`);
+                  console.error(`Error loading image: ${image.name}`);
                   e.target.src = 'https://via.placeholder.com/150?text=Image+Error';
                 }}
               />
@@ -258,6 +262,14 @@ const Upload = () => {
         ))}
       </div>
     );
+  };
+
+  // Handle Image Remove
+  const handleImageRemove = (index) => {
+    setFormData(prev => ({
+      ...prev,
+      images: prev.images.filter((_, i) => i !== index)
+    }));
   };
 
   // Form Submission Handler
