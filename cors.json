@@ -1,8 +1,17 @@
 [
   {
-    "origin": ["https://artihcus.vercel.app", "http://localhost:3000"],
+    "origin": ["*"],
     "method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
     "maxAgeSeconds": 3600,
-    "responseHeader": ["Content-Type", "Authorization", "Content-Length", "User-Agent", "x-goog-resumable"]
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length",
+      "Content-Disposition",
+      "Content-Encoding",
+      "Content-Location",
+      "Access-Control-Allow-Origin",
+      "Cache-Control",
+      "Authorization"
+    ]
   }
 ] 

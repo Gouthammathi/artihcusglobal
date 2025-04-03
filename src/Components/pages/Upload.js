@@ -3,7 +3,7 @@ import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 import { db, storage } from "../../firebase";
 import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 
 const Upload = () => {
   const [selectedPage, setSelectedPage] = useState("Events");
@@ -112,7 +112,6 @@ const Upload = () => {
     if (files.length === 0) return;
 
     try {
-      // Show loading state
       setNotification({
         message: "Uploading images...",
         type: "info",
@@ -120,68 +119,137 @@ const Upload = () => {
 
       const uploadPromises = files.map(async (file) => {
         try {
-          // Create storage reference with a unique name
-          const storageRef = ref(storage, `images/${Date.now()}_${file.name}`);
-          // Upload the file
-          const snapshot = await uploadBytes(storageRef, file);
-          // Get the download URL
+          // Validate file size (5MB limit)
+          if (file.size > 5 * 1024 * 1024) {
+            throw new Error(`File ${file.name} is too large. Maximum size is 5MB.`);
+          }
+
+          // Validate file type
+          if (!file.type.startsWith('image/')) {
+            throw new Error(`File ${file.name} is not an image.`);
+          }
+
+          // Create a unique filename
+          const uniqueFileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+          const storageRef = ref(storage, `images/${uniqueFileName}`);
+
+          // Set proper metadata
+          const metadata = {
+            contentType: file.type,
+            customMetadata: {
+              originalName: file.name,
+              uploadedAt: new Date().toISOString(),
+              uploadedBy: 'admin' // or any user identifier
+            }
+          };
+
+          // Upload with metadata
+          const snapshot = await uploadBytes(storageRef, file, metadata);
+          
+          // Get download URL
           const downloadURL = await getDownloadURL(snapshot.ref);
-          return downloadURL;
+
+          return {
+            url: downloadURL,
+            path: `images/${uniqueFileName}`,
+            name: file.name
+          };
         } catch (error) {
           console.error(`Error uploading file ${file.name}:`, error);
           throw error;
         }
       });
 
-      const imageUrls = await Promise.all(uploadPromises);
+      const results = await Promise.allSettled(uploadPromises);
       
-      setFormData((prev) => ({
-        ...prev,
-        images: [...prev.images, ...imageUrls],
-      }));
+      // Filter successful uploads and handle failures
+      const successfulUploads = results
+        .filter(result => result.status === 'fulfilled')
+        .map(result => result.value.url);
 
-      setNotification({
-        message: "Images uploaded successfully",
-        type: "success",
-      });
-      setTimeout(() => setNotification(null), 3000);
+      const failedUploads = results
+        .filter(result => result.status === 'rejected')
+        .map(result => result.reason.message);
+
+      if (failedUploads.length > 0) {
+        console.error('Failed uploads:', failedUploads);
+        setNotification({
+          message: `Some images failed to upload: ${failedUploads.join(', ')}`,
+          type: "warning"
+        });
+      }
+
+      if (successfulUploads.length > 0) {
+        setFormData(prev => ({
+          ...prev,
+          images: [...prev.images, ...successfulUploads]
+        }));
+
+        setNotification({
+          message: `Successfully uploaded ${successfulUploads.length} image(s)`,
+          type: "success"
+        });
+      }
     } catch (error) {
-      console.error("Error uploading images:", error);
+      console.error('Error in image upload:', error);
       setNotification({
-        message: "Error uploading images: " + error.message,
-        type: "error",
+        message: `Error uploading images: ${error.message}`,
+        type: "error"
       });
-      setTimeout(() => setNotification(null), 3000);
     }
   };
 
   // Handle Image Removal
-  const handleImageRemove = (index) => {
-    setFormData((prev) => {
-      const updatedImages = prev.images.filter((_, i) => i !== index);
-      return { ...prev, images: updatedImages };
-    });
+  const handleImageRemove = async (index) => {
+    try {
+      const imageUrl = formData.images[index];
+      
+      // Remove from form data first
+      setFormData(prev => ({
+        ...prev,
+        images: prev.images.filter((_, i) => i !== index)
+      }));
+
+      // Try to delete from storage if it's a Firebase Storage URL
+      if (imageUrl.includes('firebasestorage.googleapis.com')) {
+        try {
+          const storageRef = ref(storage, imageUrl);
+          await deleteObject(storageRef);
+        } catch (error) {
+          console.error('Error deleting image from storage:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Error removing image:', error);
+      setNotification({
+        message: `Error removing image: ${error.message}`,
+        type: "error"
+      });
+    }
   };
 
-  // Render Image Preview
+  // Render Image Preview with loading state
   const renderImagePreviews = () => {
     return (
       <div className="flex flex-wrap gap-4 mt-4">
         {formData.images.map((url, index) => (
-          <div key={`${url}-${index}`} className="relative">
-            <img
-              src={url}
-              alt={`Preview ${index + 1}`}
-              className="w-24 h-24 object-cover rounded-lg"
-              onError={(e) => {
-                e.target.onerror = null;
-                e.target.src = '/placeholder-image.jpg'; // Replace with your placeholder image
-              }}
-            />
+          <div key={`${url}-${index}`} className="relative group">
+            <div className="relative w-24 h-24 rounded-lg overflow-hidden">
+              <img
+                src={url}
+                alt={`Preview ${index + 1}`}
+                className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                onError={(e) => {
+                  console.error(`Error loading image: ${url}`);
+                  e.target.src = 'https://via.placeholder.com/150?text=Image+Error';
+                }}
+              />
+              <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-opacity" />
+            </div>
             <button
               type="button"
               onClick={() => handleImageRemove(index)}
-              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center"
+              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-lg hover:bg-red-600 transition-colors"
               aria-label="Remove image"
             >
               ×
@@ -222,22 +290,15 @@ const Upload = () => {
         ...formData,
         date: parsedDate,
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        images: formData.images || [] // Ensure images array exists
       };
-      delete dataToSave.id; // Remove the id field as Firestore will generate one
+      delete dataToSave.id;
 
       console.log("Attempting to save data:", dataToSave);
 
       // Add new document to the root collection
-      const docRef = await addDoc(collection(db, storeKey), {
-        name: dataToSave.name || dataToSave.title,
-        description: dataToSave.description || dataToSave.content,
-        date: dataToSave.date,
-        images: dataToSave.images,
-        category: dataToSave.category || '',
-        createdAt: dataToSave.createdAt,
-        updatedAt: dataToSave.updatedAt
-      });
+      const docRef = await addDoc(collection(db, storeKey), dataToSave);
 
       console.log("Document successfully added with ID:", docRef.id);
 
@@ -261,9 +322,8 @@ const Upload = () => {
       resetFormData();
     } catch (error) {
       console.error("Error saving data:", error);
-      console.error("Error details:", error.code, error.message);
       setNotification({
-        message: "Error saving data: " + error.message,
+        message: `Error saving data: ${error.message}`,
         type: "error",
       });
     }
