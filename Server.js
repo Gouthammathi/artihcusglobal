@@ -50,7 +50,7 @@ app.post("/send-email/career", upload.single("resume"), async (req, res) => {
 
     const mailOptions = {
       from: process.env.EMAIL_USER,
-      to: "info@artihcus.com",
+      to: "goouthamm@gmail.com",
       subject: "New Career Application - Artihcus Global",
       text: `
         New Career Application Details:

@@ -1,6 +1,11 @@
 import React, { useState } from "react";
 import { X, Upload, Check, AlertCircle } from "lucide-react";
 
+// API URL based on environment
+const API_URL = process.env.NODE_ENV === 'production' 
+  ? 'https://artihcus.vercel.app/api' // Replace with your production API URL
+  : 'http://localhost:5000';
+
 // Custom Alert Component
 const Alert = ({ children, variant = "default", className = "" }) => {
   const baseStyles = "px-4 py-3 rounded-lg flex items-center gap-3";
@@ -59,27 +64,33 @@ const Career = () => {
 
     const formDataToSend = new FormData();
     Object.keys(formData).forEach(key => {
-      formDataToSend.append(key, formData[key]);
+      if (formData[key]) {
+        formDataToSend.append(key, formData[key]);
+      }
     });
 
     try {
-      const response = await fetch("http://localhost:5000/send-email/career", {
+      const response = await fetch(`${API_URL}/send-email/career`, {
         method: "POST",
         body: formDataToSend,
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const data = await response.json();
 
-      if (response.ok) {
-        setSuccessMessage("Application submitted successfully! We'll contact you soon.");
-        setFormData({ name: "", email: "", phone: "", resume: null });
-        setFileName("");
-      } else {
-        setErrorMessage(data.error || "Error submitting the application. Please try again.");
-      }
+      setSuccessMessage("Application submitted successfully! We'll contact you soon.");
+      setFormData({ name: "", email: "", phone: "", resume: null });
+      setFileName("");
     } catch (error) {
       console.error("Error:", error);
-      setErrorMessage("Network error. Please check your connection and try again.");
+      setErrorMessage(
+        error.message === "Failed to fetch"
+          ? "Unable to connect to the server. Please try again later."
+          : "Error submitting the application. Please try again."
+      );
     } finally {
       setIsLoading(false);
     }

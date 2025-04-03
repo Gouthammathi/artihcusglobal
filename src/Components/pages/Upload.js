@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from "react";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
+import { db, storage } from "../../firebase";
+import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 const Upload = () => {
   const [selectedPage, setSelectedPage] = useState("Events");
@@ -33,12 +36,42 @@ const Upload = () => {
     ],
   };
 
-  // Initialize Local Storage
+  // Initialize Firebase Data
   useEffect(() => {
-    const storedEvents = JSON.parse(localStorage.getItem("events")) || [];
-    const storedNews = JSON.parse(localStorage.getItem("news")) || [];
-    const storedBlogs = JSON.parse(localStorage.getItem("blogs")) || [];
-    setDataStore({ events: storedEvents, news: storedNews, blogs: storedBlogs });
+    const fetchData = async () => {
+      console.log("Attempting to fetch data from Firebase...");
+      try {
+        const collections = ["events", "news", "blogs"];
+        const newDataStore = { events: [], news: [], blogs: [] };
+
+        for (const collectionName of collections) {
+          console.log(`Fetching ${collectionName} collection...`);
+          const q = query(
+            collection(db, collectionName), 
+            orderBy("createdAt", "desc")
+          );
+          
+          const querySnapshot = await getDocs(q);
+          console.log(`Found ${querySnapshot.size} documents in ${collectionName}`);
+          newDataStore[collectionName] = querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            date: doc.data().date // Ensure date is properly mapped
+          }));
+        }
+
+        console.log("Final data store:", newDataStore);
+        setDataStore(newDataStore);
+      } catch (error) {
+        console.error("Error fetching data:", error);
+        setNotification({
+          message: "Error fetching data: " + error.message,
+          type: "error",
+        });
+      }
+    };
+
+    fetchData();
   }, []);
 
   // Reset Form Data
@@ -61,15 +94,65 @@ const Upload = () => {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  // Cleanup blob URLs when component unmounts or images change
+  useEffect(() => {
+    return () => {
+      // Cleanup any existing blob URLs when component unmounts
+      formData.images.forEach(url => {
+        if (url.startsWith('blob:')) {
+          URL.revokeObjectURL(url);
+        }
+      });
+    };
+  }, [formData.images]);
+
   // Handle Image Upload
-  const handleImageUpload = (e) => {
+  const handleImageUpload = async (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
-    const imageUrls = files.map((file) => URL.createObjectURL(file));
-    setFormData((prev) => ({
-      ...prev,
-      images: [...prev.images, ...imageUrls],
-    }));
+
+    try {
+      // Show loading state
+      setNotification({
+        message: "Uploading images...",
+        type: "info",
+      });
+
+      const uploadPromises = files.map(async (file) => {
+        try {
+          // Create storage reference with a unique name
+          const storageRef = ref(storage, `images/${Date.now()}_${file.name}`);
+          // Upload the file
+          const snapshot = await uploadBytes(storageRef, file);
+          // Get the download URL
+          const downloadURL = await getDownloadURL(snapshot.ref);
+          return downloadURL;
+        } catch (error) {
+          console.error(`Error uploading file ${file.name}:`, error);
+          throw error;
+        }
+      });
+
+      const imageUrls = await Promise.all(uploadPromises);
+      
+      setFormData((prev) => ({
+        ...prev,
+        images: [...prev.images, ...imageUrls],
+      }));
+
+      setNotification({
+        message: "Images uploaded successfully",
+        type: "success",
+      });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error("Error uploading images:", error);
+      setNotification({
+        message: "Error uploading images: " + error.message,
+        type: "error",
+      });
+      setTimeout(() => setNotification(null), 3000);
+    }
   };
 
   // Handle Image Removal
@@ -80,10 +163,42 @@ const Upload = () => {
     });
   };
 
+  // Render Image Preview
+  const renderImagePreviews = () => {
+    return (
+      <div className="flex flex-wrap gap-4 mt-4">
+        {formData.images.map((url, index) => (
+          <div key={`${url}-${index}`} className="relative">
+            <img
+              src={url}
+              alt={`Preview ${index + 1}`}
+              className="w-24 h-24 object-cover rounded-lg"
+              onError={(e) => {
+                e.target.onerror = null;
+                e.target.src = '/placeholder-image.jpg'; // Replace with your placeholder image
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => handleImageRemove(index)}
+              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center"
+              aria-label="Remove image"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   // Form Submission Handler
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const storeKey = selectedPage.toLowerCase();
+    console.log("Submitting form for:", storeKey);
+    console.log("Form data:", formData);
+
     const requiredFields =
       storeKey === "events"
         ? ["name", "description", "date"]
@@ -92,6 +207,7 @@ const Upload = () => {
     // Validate Required Fields
     const isValid = requiredFields.every((field) => formData[field]);
     if (!isValid) {
+      console.log("Missing required fields:", requiredFields.filter(field => !formData[field]));
       setNotification({
         message: "Please fill all required fields",
         type: "error",
@@ -100,32 +216,57 @@ const Upload = () => {
       return;
     }
 
-    // Prepare Data for Saving
-    const parsedDate = new Date(formData.date).toISOString();
-    const updatedFormData = { ...formData, date: parsedDate };
+    try {
+      const parsedDate = new Date(formData.date).toISOString();
+      const dataToSave = {
+        ...formData,
+        date: parsedDate,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      delete dataToSave.id; // Remove the id field as Firestore will generate one
 
-    // Save Data
-    const updatedData = formData.id
-      ? dataStore[storeKey].map((item) =>
-          item.id === formData.id ? { ...item, ...updatedFormData } : item
-        )
-      : [{ ...updatedFormData, id: Date.now() }, ...dataStore[storeKey]];
+      console.log("Attempting to save data:", dataToSave);
 
-    // Update State and LocalStorage
-    const newDataStore = { ...dataStore, [storeKey]: updatedData };
-    setDataStore(newDataStore);
-    localStorage.setItem(storeKey, JSON.stringify(updatedData));
+      // Add new document to the root collection
+      const docRef = await addDoc(collection(db, storeKey), {
+        name: dataToSave.name || dataToSave.title,
+        description: dataToSave.description || dataToSave.content,
+        date: dataToSave.date,
+        images: dataToSave.images,
+        category: dataToSave.category || '',
+        createdAt: dataToSave.createdAt,
+        updatedAt: dataToSave.updatedAt
+      });
 
-    // Show Notification
-    setNotification({
-      message: formData.id
-        ? `${selectedPage} updated successfully`
-        : `${selectedPage} created successfully`,
-      type: "success",
-    });
-    setTimeout(() => setNotification(null), 3000);
+      console.log("Document successfully added with ID:", docRef.id);
 
-    resetFormData();
+      // Update local state with the new document
+      const newItem = {
+        ...dataToSave,
+        id: docRef.id
+      };
+
+      setDataStore((prev) => ({
+        ...prev,
+        [storeKey]: [newItem, ...prev[storeKey]]
+      }));
+
+      setNotification({
+        message: `${selectedPage} created successfully`,
+        type: "success",
+      });
+      setTimeout(() => setNotification(null), 3000);
+
+      resetFormData();
+    } catch (error) {
+      console.error("Error saving data:", error);
+      console.error("Error details:", error.code, error.message);
+      setNotification({
+        message: "Error saving data: " + error.message,
+        type: "error",
+      });
+    }
   };
 
   // Edit an Item
@@ -141,18 +282,28 @@ const Upload = () => {
   };
 
   // Delete an Item
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     const storeKey = selectedPage.toLowerCase();
-    const updatedData = dataStore[storeKey].filter((item) => item.id !== id);
-    const newDataStore = { ...dataStore, [storeKey]: updatedData };
-    setDataStore(newDataStore);
-    localStorage.setItem(storeKey, JSON.stringify(updatedData));
+    try {
+      await deleteDoc(doc(db, storeKey, id));
+      const updatedData = dataStore[storeKey].filter((item) => item.id !== id);
+      setDataStore((prev) => ({
+        ...prev,
+        [storeKey]: updatedData,
+      }));
 
-    setNotification({
-      message: `${selectedPage} deleted successfully`,
-      type: "success",
-    });
-    setTimeout(() => setNotification(null), 3000);
+      setNotification({
+        message: `${selectedPage} deleted successfully`,
+        type: "success",
+      });
+      setTimeout(() => setNotification(null), 3000);
+    } catch (error) {
+      console.error("Error deleting data:", error);
+      setNotification({
+        message: "Error deleting data",
+        type: "error",
+      });
+    }
   };
 
   // Format Date
@@ -351,24 +502,7 @@ const Upload = () => {
               onChange={handleImageUpload}
               className="block w-full text-sm text-gray-700 border rounded-lg cursor-pointer"
             />
-            <div className="flex space-x-4 mt-4">
-              {formData.images.map((url, index) => (
-                <div key={index} className="relative">
-                  <img
-                    src={url}
-                    alt={`uploaded ${index}`}
-                    className="w-16 h-16 rounded-lg object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleImageRemove(index)}
-                    className="absolute top-0 right-0 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
+            {renderImagePreviews()}
           </div>
           <button
             type="submit"
