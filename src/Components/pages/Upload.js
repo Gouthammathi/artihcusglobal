@@ -1,21 +1,20 @@
 import React, { useState, useEffect } from "react";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
-import { db, storage } from "../../firebase";
-import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { db } from "../../firebase";
+import { collection, addDoc, getDocs, updateDoc, deleteDoc, doc, query, orderBy, setDoc, serverTimestamp } from "firebase/firestore";
+import { toast } from "react-hot-toast";
 
 const Upload = () => {
   const [selectedPage, setSelectedPage] = useState("Events");
   const [formData, setFormData] = useState({
-    id: null,
+    type: "Events",
     name: "",
-    description: "",
-    date: "",
-    images: [],
     title: "",
-    category: "",
+    description: "",
     content: "",
+    images: [],
+    date: ""
   });
   const [dataStore, setDataStore] = useState({
     events: [],
@@ -23,6 +22,7 @@ const Upload = () => {
     blogs: [],
   });
   const [notification, setNotification] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   const modules = {
     toolbar: [
@@ -77,14 +77,13 @@ const Upload = () => {
   // Reset Form Data
   const resetFormData = () => {
     setFormData({
-      id: null,
+      type: "Events",
       name: "",
-      description: "",
-      date: "",
-      images: [],
       title: "",
-      category: "",
+      description: "",
       content: "",
+      images: [],
+      date: ""
     });
   };
 
@@ -98,13 +97,62 @@ const Upload = () => {
   useEffect(() => {
     return () => {
       // Cleanup any existing blob URLs when component unmounts
-      formData.images.forEach(url => {
-        if (url.startsWith('blob:')) {
-          URL.revokeObjectURL(url);
+      formData.images.forEach(image => {
+        if (image && typeof image === 'object' && image.url && typeof image.url === 'string' && image.url.startsWith('blob:')) {
+          URL.revokeObjectURL(image.url);
         }
       });
     };
   }, [formData.images]);
+
+  // Convert and compress image to Base64
+  const processImage = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          // Maximum dimensions
+          const MAX_WIDTH = 800;
+          const MAX_HEIGHT = 800;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Convert to base64 with compression
+          const base64String = canvas.toDataURL('image/jpeg', 0.7);
+          resolve({
+            name: file.name,
+            type: 'image/jpeg',
+            base64: base64String,
+            uploadedAt: new Date().toISOString()
+          });
+        };
+        img.onerror = reject;
+        img.src = e.target.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
 
   // Handle Image Upload
   const handleImageUpload = async (e) => {
@@ -113,47 +161,24 @@ const Upload = () => {
 
     try {
       setNotification({
-        message: "Uploading images...",
+        message: "Processing images...",
         type: "info",
       });
 
       const uploadPromises = files.map(async (file) => {
         try {
-          // Validate file size (1MB limit for free tier)
-          if (file.size > 1024 * 1024) {
-            throw new Error(`File ${file.name} is too large. Maximum size is 1MB.`);
-          }
-
           // Validate file type
           if (!file.type.startsWith('image/')) {
             throw new Error(`File ${file.name} is not an image.`);
           }
 
-          // Create a unique filename
-          const uniqueFileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-          const storageRef = ref(storage, `images/${uniqueFileName}`);
-
-          // Set metadata
-          const metadata = {
-            contentType: file.type,
-            customMetadata: {
-              originalName: file.name,
-              uploadedAt: new Date().toISOString()
-            }
-          };
-
-          // Upload file
-          const snapshot = await uploadBytes(storageRef, file, metadata);
-          console.log('Uploaded file:', snapshot);
-
-          // Get download URL
-          const downloadURL = await getDownloadURL(snapshot.ref);
-          console.log('Download URL:', downloadURL);
-
-          return downloadURL;
+          // Process and compress image
+          const processedImage = await processImage(file);
+          console.log(`Processed ${file.name}`);
+          return processedImage;
         } catch (error) {
-          console.error(`Error uploading file ${file.name}:`, error);
-          throw error;
+          console.error(`Error processing file ${file.name}:`, error);
+          throw new Error(`Failed to process ${file.name}: ${error.message}`);
         }
       });
 
@@ -170,7 +195,7 @@ const Upload = () => {
       if (failedUploads.length > 0) {
         console.error('Failed uploads:', failedUploads);
         setNotification({
-          message: `Some images failed to upload: ${failedUploads.join(', ')}`,
+          message: `Some images failed to process: ${failedUploads.join(', ')}`,
           type: "warning"
         });
       }
@@ -182,61 +207,40 @@ const Upload = () => {
         }));
 
         setNotification({
-          message: `Successfully uploaded ${successfulUploads.length} image(s)`,
+          message: `Successfully processed ${successfulUploads.length} image(s)`,
           type: "success"
         });
       }
     } catch (error) {
-      console.error('Error in image upload:', error);
+      console.error('Error in image processing:', error);
       setNotification({
-        message: `Error uploading images: ${error.message}`,
+        message: `Error processing images: ${error.message}`,
         type: "error"
       });
     }
   };
 
   // Handle Image Remove
-  const handleImageRemove = async (index) => {
-    try {
-      const imageUrl = formData.images[index];
-      
-      // Remove from form data first
-      setFormData(prev => ({
-        ...prev,
-        images: prev.images.filter((_, i) => i !== index)
-      }));
-
-      // Try to delete from storage if it's a Firebase Storage URL
-      if (imageUrl && imageUrl.includes('firebasestorage.googleapis.com')) {
-        try {
-          const storageRef = ref(storage, imageUrl);
-          await deleteObject(storageRef);
-        } catch (error) {
-          console.error('Error deleting image from storage:', error);
-        }
-      }
-    } catch (error) {
-      console.error('Error removing image:', error);
-      setNotification({
-        message: `Error removing image: ${error.message}`,
-        type: "error"
-      });
-    }
+  const handleImageRemove = (index) => {
+    setFormData(prev => ({
+      ...prev,
+      images: prev.images.filter((_, i) => i !== index)
+    }));
   };
 
   // Render Image Preview
   const renderImagePreviews = () => {
     return (
       <div className="flex flex-wrap gap-4 mt-4">
-        {formData.images.map((url, index) => (
-          <div key={index} className="relative group">
+        {formData.images.map((image, index) => (
+          <div key={`${image.name}-${index}`} className="relative group">
             <div className="relative w-24 h-24 rounded-lg overflow-hidden">
               <img
-                src={url}
+                src={image.base64}
                 alt={`Preview ${index + 1}`}
                 className="w-full h-full object-cover transition-transform group-hover:scale-105"
                 onError={(e) => {
-                  console.error(`Error loading image: ${url}`);
+                  console.error(`Error loading image: ${image.name}`);
                   e.target.src = 'https://via.placeholder.com/150?text=Image+Error';
                 }}
               />
@@ -259,69 +263,58 @@ const Upload = () => {
   // Form Submission Handler
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const storeKey = selectedPage.toLowerCase();
-    console.log("Submitting form for:", storeKey);
-    console.log("Form data:", formData);
+    if (!formData.title && !formData.name) {
+      toast.error('Please enter a title or name');
+      return;
+    }
 
-    const requiredFields =
-      storeKey === "events"
-        ? ["name", "description", "date"]
-        : ["title", "category", "content", "date"];
+    if (!formData.content && !formData.description) {
+      toast.error('Please enter content or description');
+      return;
+    }
 
-    // Validate Required Fields
-    const isValid = requiredFields.every((field) => formData[field]);
-    if (!isValid) {
-      console.log("Missing required fields:", requiredFields.filter(field => !formData[field]));
-      setNotification({
-        message: "Please fill all required fields",
-        type: "error",
-      });
-      setTimeout(() => setNotification(null), 3000);
+    if (formData.images.length === 0) {
+      toast.error('Please upload at least one image');
       return;
     }
 
     try {
-      const parsedDate = new Date(formData.date).toISOString();
-      const dataToSave = {
+      setLoading(true);
+      const storeKey = selectedPage.toLowerCase();
+      console.log('Storing data in collection:', storeKey);
+
+      // Create a new document with a custom ID
+      const docRef = doc(collection(db, storeKey));
+      const postData = {
         ...formData,
-        date: parsedDate,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        images: formData.images || [] // Ensure images array exists
-      };
-      delete dataToSave.id;
-
-      console.log("Attempting to save data:", dataToSave);
-
-      // Add new document to the root collection
-      const docRef = await addDoc(collection(db, storeKey), dataToSave);
-
-      console.log("Document successfully added with ID:", docRef.id);
-
-      // Update local state with the new document
-      const newItem = {
-        ...dataToSave,
-        id: docRef.id
+        type: selectedPage,
+        id: docRef.id,
+        date: new Date().toISOString(),
+        createdAt: serverTimestamp(),
+        status: 'published'
       };
 
-      setDataStore((prev) => ({
-        ...prev,
-        [storeKey]: [newItem, ...prev[storeKey]]
-      }));
-
-      setNotification({
-        message: `${selectedPage} created successfully`,
-        type: "success",
+      // Set the document with the custom ID
+      await setDoc(docRef, postData);
+      
+      console.log('Data stored successfully with ID:', docRef.id);
+      toast.success(`${selectedPage} uploaded successfully!`);
+      
+      // Reset form
+      setFormData({
+        type: selectedPage,
+        name: '',
+        title: '',
+        description: '',
+        content: '',
+        images: [],
+        date: ''
       });
-      setTimeout(() => setNotification(null), 3000);
-
-      resetFormData();
     } catch (error) {
-      console.error("Error saving data:", error);
-      setNotification({
-        message: `Error saving data: ${error.message}`,
-        type: "error",
-      });
+      console.error('Error storing data:', error);
+      toast.error(`Failed to upload ${selectedPage}. Please try again.`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -346,25 +339,6 @@ const Upload = () => {
       
       // Delete the document from Firestore
       await deleteDoc(doc(db, storeKey, id));
-
-      // Delete associated images from Storage if they exist
-      if (docToDelete && docToDelete.images && docToDelete.images.length > 0) {
-        const deleteImagePromises = docToDelete.images.map(async (imageUrl) => {
-          if (imageUrl.includes('firebasestorage.googleapis.com')) {
-            try {
-              // Extract the path from the URL
-              const imagePath = imageUrl.split('/o/')[1].split('?')[0];
-              const decodedPath = decodeURIComponent(imagePath);
-              const imageRef = ref(storage, decodedPath);
-              await deleteObject(imageRef);
-            } catch (error) {
-              console.error(`Error deleting image: ${imageUrl}`, error);
-            }
-          }
-        });
-
-        await Promise.all(deleteImagePromises);
-      }
 
       // Update local state
       const updatedData = dataStore[storeKey].filter((item) => item.id !== id);

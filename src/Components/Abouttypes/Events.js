@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Image as ImageIcon, ChevronDown, ChevronUp, Calendar, Heart, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
- 
+import { db } from '../../firebase'; // Make sure this path is correct
+import { collection, query, onSnapshot, orderBy } from 'firebase/firestore';
+
 const Events = () => {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -9,57 +11,50 @@ const Events = () => {
   const [selectedImageIndex, setSelectedImageIndex] = useState(null);
   const [selectedEventId, setSelectedEventId] = useState(null);
   const [likes, setLikes] = useState({});
-  const [autoSlide, setAutoSlide] = useState(false); // Auto slide is initially false
- 
+  const [autoSlide, setAutoSlide] = useState(false);
+
   useEffect(() => {
-    const loadEvents = () => {
-      setLoading(true);
-      const storedEvents = localStorage.getItem('events');
-      const storedLikes = localStorage.getItem('eventLikes');
-      const parsedEvents = storedEvents ? JSON.parse(storedEvents) : [];
-      const parsedLikes = storedLikes ? JSON.parse(storedLikes) : {};
-      setEvents(parsedEvents.reverse());
-      setLikes(parsedLikes);
+    const q = query(collection(db, 'events'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const eventsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setEvents(eventsData);
       setLoading(false);
-    };
- 
-    loadEvents();
-    window.addEventListener('storage', loadEvents);
-    return () => window.removeEventListener('storage', loadEvents);
+    });
+
+    return () => unsubscribe();
   }, []);
- 
+
   const toggleEvent = (eventId) => {
     setExpandedEvent(expandedEvent === eventId ? null : eventId);
   };
- 
+
   const handleLike = (eventId) => {
     const newLikes = { ...likes };
     newLikes[eventId] = !newLikes[eventId];
     setLikes(newLikes);
-    localStorage.setItem('eventLikes', JSON.stringify(newLikes));
   };
- 
+
   const openLightbox = (eventId, index) => {
     setSelectedEventId(eventId);
     setSelectedImageIndex(index);
     setAutoSlide(true); // Enable auto-slide when image is opened
   };
- 
+
   const closeLightbox = () => {
     setSelectedImageIndex(null);
     setAutoSlide(false); // Stop auto-slide when lightbox is closed
   };
- 
+
   const navigateImage = (direction) => {
     const currentEvent = events.find(e => e.id === selectedEventId);
     if (!currentEvent) return;
- 
+
     const newIndex = selectedImageIndex + direction;
     if (newIndex >= 0 && newIndex < currentEvent.images.length) {
       setSelectedImageIndex(newIndex);
     }
   };
- 
+
   // Auto-slide logic
   useEffect(() => {
     let interval;
@@ -72,11 +67,11 @@ const Events = () => {
           setSelectedImageIndex(0); // Reset to the first image when reaching the end
         }
       }, 3000); // Slide every 3 seconds
- 
+
       return () => clearInterval(interval); // Cleanup interval on component unmount or when autoSlide changes
     }
   }, [selectedImageIndex, autoSlide, selectedEventId]);
- 
+
   const ImageSlider = ({ images, currentIndex, onClose }) => (
     <motion.div
       initial={{ opacity: 0 }}
@@ -96,7 +91,7 @@ const Events = () => {
           ✕
         </motion.div>
       </button>
- 
+
       <div className="relative w-full h-full flex items-center justify-center">
         <motion.div
           key={currentIndex}
@@ -113,7 +108,7 @@ const Events = () => {
             className="w-full h-full object-contain rounded-xl shadow-2xl"
           />
         </motion.div>
- 
+
         {currentIndex > 0 && (
           <motion.button
             whileHover={{ scale: 1.1 }}
@@ -128,7 +123,7 @@ const Events = () => {
             <ChevronLeft size={24} />
           </motion.button>
         )}
- 
+
         {currentIndex < images.length - 1 && (
           <motion.button
             whileHover={{ scale: 1.1 }}
@@ -146,7 +141,7 @@ const Events = () => {
       </div>
     </motion.div>
   );
- 
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-orange-50 to-orange-100 flex items-center justify-center">
@@ -157,7 +152,7 @@ const Events = () => {
       </div>
     );
   }
- 
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 to-orange-100 py-12 px-4 sm:px-6 lg:px-8">
       <motion.div
@@ -168,7 +163,7 @@ const Events = () => {
         <h1 className="text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-orange-600 to-orange-700 mb-8 text-center">
           Company Events Gallery
         </h1>
- 
+
         {events.length === 0 ? (
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
@@ -197,7 +192,7 @@ const Events = () => {
                 <div className="cursor-pointer" onClick={() => toggleEvent(event.id)}>
                   <div className="relative h-56 overflow-hidden">
                     <motion.img
-                      src={event.images[0]}
+                      src={event.images[0].base64}
                       alt={event.name}
                       className="w-full h-full object-contain"
                       whileHover={{ scale: 1.1 }}
@@ -215,7 +210,7 @@ const Events = () => {
                       )}
                     </motion.div>
                   </div>
- 
+
                   <div className="p-6">
                     <h3 className="text-2xl font-semibold text-gray-900 mb-2">
                       {event.name}
@@ -242,7 +237,7 @@ const Events = () => {
                     </div>
                   </div>
                 </div>
- 
+
                 <AnimatePresence>
                   {expandedEvent === event.id && (
                     <motion.div
@@ -259,7 +254,7 @@ const Events = () => {
                             onClick={() => openLightbox(event.id, index)}
                           >
                             <img
-                              src={image}
+                              src={image.base64}
                               alt={`Event ${index}`}
                               className="w-full h-32 object-contain rounded-md"
                             />
@@ -274,10 +269,10 @@ const Events = () => {
           </motion.div>
         )}
       </motion.div>
- 
+
       {selectedImageIndex !== null && selectedEventId !== null && (
         <ImageSlider
-          images={events.find(e => e.id === selectedEventId).images}
+          images={events.find(e => e.id === selectedEventId).images.map(img => img.base64)}
           currentIndex={selectedImageIndex}
           onClose={closeLightbox}
         />
@@ -285,5 +280,5 @@ const Events = () => {
     </div>
   );
 };
- 
+
 export default Events;
