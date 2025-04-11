@@ -236,6 +236,32 @@ const Test = () => {
     return (correct / currentModuleQuestions.length) * 100;
   };
 
+  // Function to shuffle an array
+  function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+  }
+
+  // Function to select random questions
+  function selectRandomQuestions(questions) {
+    const singleChoiceQuestions = questions.filter(q => q.type === 'single');
+    const descriptiveQuestions = questions.filter(q => q.type === 'descriptive');
+    const multipleChoiceQuestions = questions.filter(q => q.type === 'multiple');
+
+    const selectedSingleChoice = shuffleArray(singleChoiceQuestions).slice(0, 25);
+    const selectedDescriptive = shuffleArray(descriptiveQuestions).slice(0, 5);
+    const selectedMultipleChoice = shuffleArray(multipleChoiceQuestions).slice(0, 10);
+
+    const selectedQuestions = [...selectedSingleChoice, ...selectedDescriptive, ...selectedMultipleChoice];
+    return shuffleArray(selectedQuestions);
+  }
+
+  // Get random questions
+  const randomQuestions = selectRandomQuestions(currentModuleQuestions);
+
   if (showResults) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 py-12 px-4 sm:px-6 lg:px-8">
@@ -313,7 +339,7 @@ const Test = () => {
 
           {/* Questions Review */}
           <div className="space-y-6">
-            {currentModuleQuestions.map((q, index) => (
+            {randomQuestions.map((q, index) => (
               <div key={q.id} className="bg-white rounded-xl shadow-lg p-6 transform transition-all hover:shadow-xl">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center space-x-3">
@@ -390,7 +416,7 @@ const Test = () => {
             </h2>
               <div className="h-6 w-px bg-white/20"></div>
               <div className="text-sm opacity-90">
-                Question {currentQuestion + 1} of {currentModuleQuestions.length}
+                Question {currentQuestion + 1} of {randomQuestions.length}
               </div>
             </div>
             <div className="flex items-center bg-white/10 px-6 py-3 rounded-xl shadow-inner">
@@ -422,25 +448,25 @@ const Test = () => {
                 </h3>
                   </div>
                   <p className="text-gray-700 text-lg pl-11">
-                    {currentModuleQuestions[currentQuestion].question}
+                    {randomQuestions[currentQuestion].question}
                 </p>
               </div>
 
               <div className="space-y-4">
-                  {currentModuleQuestions[currentQuestion].options.map((option, index) => (
+                  {randomQuestions[currentQuestion].options.map((option, index) => (
                   <label
                     key={index}
                       className={`flex items-center p-4 rounded-lg border cursor-pointer transition-all duration-200 ${
-                        answers[currentModuleQuestions[currentQuestion].id] === index
+                        answers[randomQuestions[currentQuestion].id] === index
                           ? 'border-orange-500 bg-orange-50 shadow-sm'
                           : 'border-gray-200 hover:border-orange-300 hover:bg-gray-50'
                     }`}
                   >
                     <input
                       type="radio"
-                        name={`question-${currentModuleQuestions[currentQuestion].id}`}
-                        checked={answers[currentModuleQuestions[currentQuestion].id] === index}
-                        onChange={() => handleAnswerSelect(currentModuleQuestions[currentQuestion].id, index)}
+                        name={`question-${randomQuestions[currentQuestion].id}`}
+                        checked={answers[randomQuestions[currentQuestion].id] === index}
+                        onChange={() => handleAnswerSelect(randomQuestions[currentQuestion].id, index)}
                         className="h-5 w-5 text-orange-500 focus:ring-orange-500 border-gray-300"
                       />
                       <span className="ml-4 text-gray-700">{option}</span>
@@ -451,7 +477,7 @@ const Test = () => {
                 <div className="mt-8 flex justify-between items-center">
                   <div className="flex space-x-3">
                 <button
-                      onClick={() => handleReview(currentModuleQuestions[currentQuestion].id)}
+                      onClick={() => handleReview(randomQuestions[currentQuestion].id)}
                       className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors"
                 >
                   <FaFlag className="mr-2" />
@@ -459,7 +485,7 @@ const Test = () => {
                 </button>
                 <button
                       onClick={handleSaveAndNext}
-                      disabled={currentQuestion === currentModuleQuestions.length - 1}
+                      disabled={currentQuestion === randomQuestions.length - 1}
                       className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                     >
                       Save & Next
@@ -485,7 +511,7 @@ const Test = () => {
                 Question Navigation
               </h3>
               <div className="grid grid-cols-5 gap-2">
-                  {currentModuleQuestions.map((q, index) => (
+                  {randomQuestions.map((q, index) => (
                   <button
                     key={index}
                     onClick={() => handleQuestionNavigation(index)}

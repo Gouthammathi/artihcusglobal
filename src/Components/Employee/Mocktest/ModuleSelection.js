@@ -25,7 +25,7 @@ const ModuleSelection = () => {
     {
       id: 'ewm',
       name: 'SAP EWM',
-      description: 'Extended Warehouse Management concepts and implementation',
+      description: 'Functional Module',
       duration: '90 minutes',
       questions: 5,
       icon: <FaBook className="w-6 h-6" />
