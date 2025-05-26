@@ -343,8 +343,13 @@ const Header = () => {
            
             {/* Social Icons - Mobile */}
             <div className="flex justify-center gap-8 py-4 border-t">
-            <a href="https://emp-login.vercel.app" target="_blank" rel="noopener noreferrer" className="text-orange-500 hover:text-orange-600">
-            <FaUserCircle size={20} />
+              <a 
+                href="https://emp-login.vercel.app" 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                className="text-orange-500 hover:text-orange-600"
+              >
+                <FaUserCircle size={20} />
               </a>
               <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="text-orange-500 hover:text-orange-600">
                 <FaTwitter size={20} />
