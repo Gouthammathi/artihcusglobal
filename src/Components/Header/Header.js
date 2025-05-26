@@ -298,14 +298,7 @@ const Header = () => {
                 alt="GreyHR" 
                 className="h-6 w-auto hover:opacity-80 transition-opacity duration-200"
               />
-            </a>
-            {/* Employee Login Icon */}
-            <Link 
-              to="/emp-login" 
-              className="text-orange-500 hover:text-orange-600 transition-colors duration-200"
-            >
-              <FaUserCircle size={24} />
-            </Link>
+            
             <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="text-orange-500 hover:text-orange-600">
               <FaTwitter size={24} />
             </a>
