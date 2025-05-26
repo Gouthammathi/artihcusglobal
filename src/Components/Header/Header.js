@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import logo from '../images/Logooo.png';
-import greyhr from '../images/greyhr.png';
+import emp from '../images/emp.png';
 import { FaTwitter, FaLinkedin, FaBlog, FaUserCircle } from 'react-icons/fa';
 
 const Header = () => {
@@ -288,13 +288,13 @@ const Header = () => {
           <div className="hidden md:flex items-center gap-8">
             {/* GreyHR Icon */}
             <a 
-              href="https://artihcusglobal.greythr.com" 
+              href="https://emp-login.vercel.app" 
               target="_blank" 
               rel="noopener noreferrer" 
               className="text-orange-500 hover:text-orange-600"
             >
               <img 
-                src={greyhr} 
+                src={emp} 
                 alt="GreyHR" 
                 className="h-6 w-auto hover:opacity-80 transition-opacity duration-200"
               />
