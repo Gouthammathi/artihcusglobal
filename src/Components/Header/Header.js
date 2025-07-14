@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import logo from '../images/Logooo.png';
 import emp from '../images/emp.png';
-import { FaTwitter, FaLinkedin, FaBlog, FaUserCircle } from 'react-icons/fa';
+import { FaTwitter, FaLinkedin, FaBlog, FaTicketAlt } from 'react-icons/fa';
 
 const Header = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -288,12 +288,12 @@ const Header = () => {
           <div className="hidden md:flex items-center gap-8">
             {/* GreyHR Icon */}
             <a 
-              href="https://emp-login.vercel.app" 
+              href="https://articket-master.vercel.app" 
               target="_blank" 
               rel="noopener noreferrer" 
               className="text-orange-500 hover:text-orange-600"
             >
-              <FaUserCircle size={20} />
+              <FaTicketAlt size={20} />
             </a>
             
             <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="text-orange-500 hover:text-orange-600">
@@ -349,7 +349,7 @@ const Header = () => {
                 rel="noopener noreferrer" 
                 className="text-orange-500 hover:text-orange-600"
               >
-                <FaUserCircle size={20} />
+                <FaTicketAlt size={20} />
               </a>
               <a href="https://twitter.com" target="_blank" rel="noopener noreferrer" className="text-orange-500 hover:text-orange-600">
                 <FaTwitter size={20} />
